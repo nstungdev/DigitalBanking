@@ -1,2 +1,8 @@
 <Solution>
+  <Folder Name="/common/">
+    <Project Path="src/ServiceDefaults/ServiceDefaults.csproj" />
+  </Folder>
+  <Folder Name="/host/">
+    <Project Path="src/AppHost/AppHost.csproj" />
+  </Folder>
 </Solution>
