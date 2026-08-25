@@ -2,6 +2,9 @@
   "name": "Web",
   "version": "0.0.0",
   "private": true,
+  "scripts": {
+    "serve:portal": "nx serve portal"
+  },
   "devDependencies": {
     "@angular-devkit/core": "~22.0.4",
     "@angular-devkit/schematics": "~22.0.4",

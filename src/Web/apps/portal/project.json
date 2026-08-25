@@ -8,9 +8,7 @@
   "targets": {
     "build": {
       "executor": "@angular/build:application",
-      "outputs": [
-        "{options.outputPath}"
-      ],
+      "outputs": ["{options.outputPath}"],
       "defaultConfiguration": "production",
       "options": {
         "outputPath": "dist/apps/portal",
@@ -23,9 +21,7 @@
             "input": "apps/portal/public"
           }
         ],
-        "styles": [
-          "apps/portal/src/styles.scss"
-        ],
+        "styles": ["apps/portal/src/styles.scss"],
         "server": "apps/portal/src/main.server.ts",
         "ssr": {
           "entry": "apps/portal/src/server.ts"
@@ -58,6 +54,9 @@
     "serve": {
       "continuous": true,
       "executor": "@angular/build:dev-server",
+      "options": {
+        "allowedHosts": ["*.dev.localhost"]
+      },
       "defaultConfiguration": "development",
       "configurations": {
         "production": {

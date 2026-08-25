@@ -9,4 +9,9 @@
     <UserSecretsId>aa967b32-9318-4005-8655-a68d01a57a2c</UserSecretsId>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.PostgreSQL" Version="13.5.2" />
+    <PackageReference Include="CommunityToolkit.Aspire.Hosting.JavaScript.Extensions" Version="13.5.0" />
+  </ItemGroup>
+
 </Project>
