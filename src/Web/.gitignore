@@ -1,0 +1,28 @@
+# Nx cache & local workspace data — machine-specific, tự sinh lại được, không commit
+.nx/cache
+.nx/workspace-data
+
+# dependencies (đã bị che bởi .gitignore gốc của repo, khai lại cho rõ nếu folder này tách riêng)
+node_modules
+
+# build output
+dist
+tmp
+out-tsc
+apps/*/dist
+
+# Angular build cache
+.angular/cache
+
+# test artifacts
+coverage
+apps/*/test-results
+apps/*/playwright-report
+
+# logs
+*.log
+npm-debug.log*
+
+# local env
+.env
+.env.local
