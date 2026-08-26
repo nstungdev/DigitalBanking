@@ -5,4 +5,7 @@
   <Folder Name="/host/">
     <Project Path="src/AppHost/AppHost.csproj" />
   </Folder>
+  <Folder Name="/services/">
+    <Project Path="src/Services/Identity/Identity.csproj" Id="a2b73433-efcb-480f-8dfa-9337bd378227" />
+  </Folder>
 </Solution>

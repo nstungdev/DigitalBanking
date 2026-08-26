@@ -6,6 +6,13 @@ var postgres = builder
     .WithDataVolume("digitalbanking-postgres-data")
     .WithHostPort(5432);
 
+var identityApi = builder
+    .AddProject<Projects.Identity>("identity-api")
+    .WithReference(postgres)
+    .WithHttpEndpoint(port: 5000, env: "PORT")
+    .WaitFor(postgres);
+
+
 var nx = builder
     .AddNxApp("web", "../Web")
     .WithNpm(install: true)
@@ -13,7 +20,8 @@ var nx = builder
 
 nx.AddApp("portal")
     .WithHttpEndpoint(port: 4200, env: "PORT")
-    .WithMappedEndpointPort();
+    .WithMappedEndpointPort()
+    .WaitFor(identityApi);
 
 
 await builder.Build().RunAsync();

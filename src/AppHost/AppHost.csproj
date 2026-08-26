@@ -14,4 +14,8 @@
     <PackageReference Include="CommunityToolkit.Aspire.Hosting.JavaScript.Extensions" Version="13.5.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\Services\Identity\Identity.csproj" />
+  </ItemGroup>
+
 </Project>
