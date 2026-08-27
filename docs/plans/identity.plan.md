@@ -1,6 +1,6 @@
 # Plan: Identity
 
-> Trạng thái: Draft. Cập nhật lần cuối: 2026-08-26.
+> Trạng thái: Draft. Cập nhật lần cuối: 2026-08-27.
 
 ## Bối cảnh
 - Vai trò trong kiến trúc: OAuth2/OIDC Authorization Server (OpenIddict) — xem [01-architecture-overview.md §1, §4](../01-architecture-overview.md).
@@ -74,9 +74,162 @@ DB `identitydb`: theo [02-database-schema.md](../02-database-schema.md) (AspNetU
 - [ ] Verify YARP forward `Set-Cookie` từ response của Identity về nguyên vẹn cho browser (mặc định YARP có forward, nhưng cần kiểm tra thực tế — xem rủi ro bên dưới).
 
 **Data**
-- [ ] `Data/IdentityDbContext.cs`, `Data/ApplicationUser.cs` (+ `CustomerId`), gọi `builder.UseOpenIddict()` trong `OnModelCreating`.
+
+> 2 điểm khác với sketch gốc ở [03-tech-stack.md](../03-tech-stack.md) (chủ đích, không phải lỗi):
+> (1) dùng `IdentityDbContext<ApplicationUser, IdentityRole<Guid>, Guid>` thay vì
+> `IdentityDbContext<ApplicationUser>` (key `string` mặc định) — để khớp quy ước `id uuid` cho
+> mọi bảng trong [02-database-schema.md](../02-database-schema.md); (2) migration chạy inline
+> trong `Program.cs` (`Database.MigrateAsync()`) thay vì qua 1 migration service riêng theo
+> khuyến nghị hiện tại của Aspire — vì đã chốt trước đó không muốn thêm service chuyên migrate.
+
+Bố cục:
+```
+src/Services/Identity/Data/
+  ApplicationUser.cs          (sửa lại — hiện là stub sai)
+  IdentityDbContext.cs        (sửa lại — hiện là stub rỗng)
+  Seed/
+    OpenIddictSeeder.cs        (file mới)
+```
+Không cần `ApplicationRole.cs` riêng — dùng thẳng `IdentityRole<Guid>` của framework.
+
+- [ ] `Data/ApplicationUser.cs`:
+  ```csharp
+  using Microsoft.AspNetCore.Identity;
+
+  namespace Identity.Data;
+
+  public class ApplicationUser : IdentityUser<Guid>
+  {
+      public Guid? CustomerId { get; set; }
+  }
+  ```
+  Kế thừa `IdentityUser<Guid>` (stub hiện tại không kế thừa gì); `CustomerId` là `Guid?` (khớp
+  cột `customer_id uuid, nullable` — liên kết logic tới `customerdb.customers`, không FK vật lý).
+
+- [ ] `Data/IdentityDbContext.cs`:
+  ```csharp
+  using Microsoft.AspNetCore.Identity;
+  using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
+  using Microsoft.EntityFrameworkCore;
+
+  namespace Identity.Data;
+
+  public class IdentityDbContext(DbContextOptions<IdentityDbContext> options)
+      : IdentityDbContext<ApplicationUser, IdentityRole<Guid>, Guid>(options)
+  {
+      protected override void OnModelCreating(ModelBuilder builder)
+      {
+          base.OnModelCreating(builder);
+          builder.UseOpenIddict();
+      }
+  }
+  ```
+  Giữ style primary-constructor đã có sẵn trong stub, chỉ đổi base class từ `DbContext` sang
+  `IdentityDbContext<ApplicationUser, IdentityRole<Guid>, Guid>`. Tên class `IdentityDbContext`
+  trùng tên base class (`Microsoft.AspNetCore.Identity.EntityFrameworkCore.IdentityDbContext<T1,T2,T3>`)
+  nhưng **hợp lệ** — C# phân biệt theo `(tên, arity)`, arity 0 vs arity 3 không đụng nhau (giống
+  `Queue`/`Queue<T>` trong BCL). OpenIddict tự thêm 4 bảng
+  (`OpenIddictApplications/Authorizations/Scopes/Tokens`) qua `UseOpenIddict()`, dùng khoá
+  `string` mặc định, độc lập với `Guid` của `AspNetUsers` (không FK thật, chỉ cột `Subject`
+  string) — không cần `UseOpenIddict<Guid>()`.
+
 - [ ] `dotnet ef migrations add InitialIdentity` (chạy trong `src/Services/Identity`).
-- [ ] `Data/Seed/OpenIddictSeeder.cs` — seed client `angular-spa` + toàn bộ scope, chạy sau `app.Build()`.
+
+- [ ] `Data/Seed/OpenIddictSeeder.cs` — seed client `angular-spa` + toàn bộ scope, chạy sau
+  `app.Build()`:
+  ```csharp
+  using OpenIddict.Abstractions;
+  using static OpenIddict.Abstractions.OpenIddictConstants;
+
+  namespace Identity.Data.Seed;
+
+  public static class OpenIddictSeeder
+  {
+      // Khớp bảng scope ở 01-architecture-overview.md §4
+      private static readonly (string Name, string? Resource)[] Scopes =
+      [
+          ("openid", null), ("profile", null), ("email", null), ("offline_access", null),
+          ("customers.read", "customer-api"),    ("customers.write", "customer-api"),
+          ("accounts.read", "account-api"),      ("accounts.write", "account-api"),
+          ("transactions.read", "transaction-api"), ("transactions.write", "transaction-api"),
+          ("cards.read", "card-api"),            ("cards.write", "card-api"),
+          ("loans.read", "loan-api"),            ("loans.write", "loan-api"),
+          ("payments.read", "payment-api"),      ("payments.write", "payment-api"),
+      ];
+
+      public static async Task SeedAsync(IServiceProvider services)
+      {
+          await using var scope = services.CreateAsyncScope();
+          var scopeManager = scope.ServiceProvider.GetRequiredService<IOpenIddictScopeManager>();
+          var appManager = scope.ServiceProvider.GetRequiredService<IOpenIddictApplicationManager>();
+
+          foreach (var (name, resource) in Scopes)
+          {
+              if (await scopeManager.FindByNameAsync(name) is not null)
+                  continue;
+
+              var descriptor = new OpenIddictScopeDescriptor { Name = name };
+              if (resource is not null)
+                  descriptor.Resources.Add(resource);
+
+              await scopeManager.CreateAsync(descriptor);
+          }
+
+          if (await appManager.FindByClientIdAsync("angular-spa") is not null)
+              return;
+
+          var app = new OpenIddictApplicationDescriptor
+          {
+              ClientId = "angular-spa",
+              ClientType = ClientTypes.Public,
+              DisplayName = "DigitalBanking Angular SPA",
+              RedirectUris = { new Uri("http://localhost:4200/auth-callback") },
+              PostLogoutRedirectUris = { new Uri("http://localhost:4200/") },
+              Permissions =
+              {
+                  Permissions.Endpoints.Authorization,
+                  Permissions.Endpoints.Token,
+                  Permissions.GrantTypes.AuthorizationCode,
+                  Permissions.GrantTypes.RefreshToken,
+                  Permissions.ResponseTypes.Code,
+              },
+              Requirements = { Requirements.Features.ProofKeyForCodeExchange }
+          };
+          foreach (var (name, _) in Scopes)
+              app.Permissions.Add(Permissions.Prefixes.Scope + name);
+
+          await appManager.CreateAsync(app);
+      }
+  }
+  ```
+  Đã verify trực tiếp từ source OpenIddict 7.6.0: `IOpenIddictScopeManager`/
+  `IOpenIddictApplicationManager` với `CreateAsync(descriptor)`, `FindByNameAsync(name)`,
+  `FindByClientIdAsync(id)` là đúng API hiện hành. Idempotent (check tồn tại trước khi tạo) —
+  khớp mẫu chính thức OpenIddict dùng trong sample "Zirku" (SPA + PKCE, kiến trúc gần giống ở đây).
+
+- [ ] Wiring `Data/` vào `Program.cs` (không lặp lại phần `AddOpenIddict().AddServer()` đã có
+  ở checklist "OpenIddict Server" bên dưới):
+  ```csharp
+  builder.Services.AddDbContext<IdentityDbContext>(options =>
+      options.UseNpgsql(builder.Configuration.GetConnectionString("identitydb")));
+
+  // ... AddOpenIddict().AddCore(o => o.UseEntityFrameworkCore().UseDbContext<IdentityDbContext>())
+  //     .AddServer(...) — xem "OpenIddict Server" bên dưới
+
+  var app = builder.Build();
+
+  await using (var scope = app.Services.CreateAsyncScope())
+  {
+      var db = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();
+      await db.Database.MigrateAsync();          // shortcut tạm thời — xem rủi ro
+      await OpenIddictSeeder.SeedAsync(app.Services);
+  }
+
+  await app.RunAsync();
+  ```
+  Connection string `identitydb` sẽ tự có trong `builder.Configuration` sau khi `AppHost.cs`
+  được sửa theo checklist "Hạ tầng" ở trên (`postgres.AddDatabase("identitydb")` +
+  `.WithReference(identitydb)`).
 
 **Domain (mỏng — chỉ cho RegisterUser)**
 - [ ] `Domain/Email.cs` — Value Object, constructor validate format (không phụ thuộc `System.ComponentModel.DataAnnotations`/EF Core — Domain không được phụ thuộc Infrastructure).
@@ -111,3 +264,5 @@ DB `identitydb`: theo [02-database-schema.md](../02-database-schema.md) (AspNetU
 - **`CustomerId`** để nullable, chưa liên kết thật tới Customer service (chưa tồn tại) — khi có, có thể thêm method `User.LinkToCustomer(CustomerId)` vào Domain layer thay vì set trực tiếp property.
 - **`RegisterUser` chưa publish integration event** `UserRegistered` (Identity chưa wiring RabbitMQ/outbox lần này).
 - **Gateway tối thiểu ở đây sẽ cần mở rộng lại** khi làm `docs/plans/gateway.plan.md` cho Giai đoạn 2 — tránh 2 lần cấu hình xung đột nhau.
+- **Migration inline khác khuyến nghị hiện tại của Aspire**: tài liệu Aspire hiện đề xuất 1 worker/service riêng chạy migration (`BackgroundService` + `WaitForCompletion()` trong AppHost) thay vì gọi `MigrateAsync()` ngay trong `Program.cs` của service. Ở đây **cố tình** không theo, vì đã chốt trước đó không muốn thêm 1 service chuyên migrate — chấp nhận đánh đổi (mọi service tự migrate DB của mình lúc start; không phải vấn đề bây giờ vì mỗi service có DB riêng, nhưng có thể cần xem lại nếu sau này nhiều service cùng migrate 1 lúc gây tranh chấp).
+- **`db.Database.MigrateAsync()` yêu cầu đã chạy `dotnet ef migrations add InitialIdentity` trước** — nếu chưa có migration nào, lệnh này sẽ không tạo được bảng.
